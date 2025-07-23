@@ -13,6 +13,7 @@ import {
   Settings,
   ArrowRight
 } from 'lucide-react';
+import { districts, taluka_code, district_taluka_sales_person_mapping } from '@/data/tables';
 
 interface ValidationResult {
   field: string;
@@ -76,31 +77,45 @@ const DataProcessor = () => {
       const parsed = JSON.parse(jsonInput);
       const results: ValidationResult[] = [];
       
-      // Simulate field validation
-      if (parsed.email) {
-        const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parsed.email);
+      // Check required fields
+      const requiredFields = ['district_code', 'taluka_code', 'sales_person'];
+      requiredFields.forEach(field => {
+        if (!parsed[field]) {
+          results.push({
+            field,
+            status: 'invalid',
+            message: `${field} is required`
+          });
+        }
+      });
+
+      // Validate district_code exists in districts table
+      if (parsed.district_code) {
+        const districtExists = districts.some(d => d.district_code === parsed.district_code);
         results.push({
-          field: 'email',
-          status: emailValid ? 'valid' : 'invalid',
-          message: emailValid ? 'Valid email format' : 'Invalid email format'
+          field: 'district_code',
+          status: districtExists ? 'valid' : 'invalid',
+          message: districtExists ? 'District code exists in table' : 'District code not found in table'
         });
       }
-      
-      if (parsed.age !== undefined) {
-        const ageValid = typeof parsed.age === 'number' && parsed.age >= 0 && parsed.age <= 120;
+
+      // Validate taluka_code exists in taluka table
+      if (parsed.taluka_code) {
+        const talukaExists = taluka_code.some(t => t.taluka_code === parsed.taluka_code);
         results.push({
-          field: 'age',
-          status: ageValid ? 'valid' : 'invalid',
-          message: ageValid ? 'Age within valid range' : 'Age must be between 0 and 120'
+          field: 'taluka_code',
+          status: talukaExists ? 'valid' : 'invalid',
+          message: talukaExists ? 'Taluka code exists in table' : 'Taluka code not found in table'
         });
       }
-      
-      if (parsed.phone) {
-        const phoneValid = /^\+?[\d\s\-\(\)]+$/.test(parsed.phone);
+
+      // Validate sales_person has minimum 4 characters
+      if (parsed.sales_person) {
+        const salesPersonValid = parsed.sales_person.length >= 4;
         results.push({
-          field: 'phone',
-          status: phoneValid ? 'valid' : 'invalid',
-          message: phoneValid ? 'Valid phone format' : 'Invalid phone format'
+          field: 'sales_person',
+          status: salesPersonValid ? 'valid' : 'invalid',
+          message: salesPersonValid ? 'Sales person name is valid' : 'Sales person name must be at least 4 characters'
         });
       }
       
@@ -117,36 +132,56 @@ const DataProcessor = () => {
   const simulateBusinessRules = async (): Promise<string[]> => {
     await new Promise(resolve => setTimeout(resolve, 1200));
     
-    const rules = [
-      'User eligibility verified',
-      'Credit score requirements met',
-      'Geographic restrictions validated',
-      'Account status verified as active'
-    ];
-    
-    return rules;
+    try {
+      const parsed = JSON.parse(jsonInput);
+      const rules: string[] = [];
+      
+      // Check if sales person exists more than 2 times in mapping table
+      if (parsed.sales_person) {
+        const salesPersonCount = district_taluka_sales_person_mapping.filter(
+          mapping => mapping.sales_person === parsed.sales_person
+        ).length;
+        
+        if (salesPersonCount < 2) {
+          rules.push('Sales person assignment limit validation passed');
+        } else {
+          rules.push('ERROR: Sales person already exists 2 or more times in mapping table');
+        }
+      }
+      
+      return rules;
+    } catch {
+      return ['ERROR: Invalid JSON format for business rules validation'];
+    }
   };
 
   const simulateETL = async (): Promise<any> => {
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    return {
-      userProfile: {
-        preferences: ['email_notifications', 'sms_alerts'],
-        tier: 'premium',
-        joinDate: '2023-01-15'
-      },
-      accountDetails: {
-        balance: 1250.75,
-        currency: 'USD',
-        lastActivity: '2024-07-22'
-      },
-      metadata: {
-        dataSourceId: 'db_users_001',
+    try {
+      const parsed = JSON.parse(jsonInput);
+      
+      // Get district name from district_code
+      const district = districts.find(d => d.district_code === parsed.district_code);
+      const district_name = district?.district_name || '';
+      
+      // Get taluka name from taluka_code
+      const taluka = taluka_code.find(t => t.taluka_code === parsed.taluka_code);
+      const taluka_name = taluka?.taluka_name || '';
+      
+      return {
+        district_name,
+        taluka_name,
+        enrichmentDate: new Date().toISOString()
+      };
+    } catch {
+      return {
+        district_name: '',
+        taluka_name: '',
         enrichmentDate: new Date().toISOString(),
-        version: '1.2.3'
-      }
-    };
+        error: 'Failed to process ETL data'
+      };
+    }
   };
 
   const processData = async () => {
@@ -191,11 +226,15 @@ const DataProcessor = () => {
       await new Promise(resolve => setTimeout(resolve, 800));
       const inputData = JSON.parse(jsonInput);
       const finalData = {
-        ...inputData,
-        ...etlData,
-        processedAt: new Date().toISOString(),
-        status: 'processed'
+        district_code: inputData.district_code,
+        district_name: etlData.district_name,
+        taluka_code: inputData.taluka_code,
+        taluka_name: etlData.taluka_name,
+        sales_person: inputData.sales_person
       };
+      
+      // Push to table (simulate)
+      district_taluka_sales_person_mapping.push(finalData);
       
       setFinalOutput(JSON.stringify(finalData, null, 2));
       setProgress(100);
@@ -314,10 +353,9 @@ const DataProcessor = () => {
                 onChange={(e) => setJsonInput(e.target.value)}
                 placeholder='Enter your JSON data here, e.g.:
 {
-  "name": "John Doe",
-  "email": "john@example.com",
-  "age": 30,
-  "phone": "+1-555-0123"
+  "district_code": "AHM001",
+  "taluka_code": "AHM-T001",
+  "sales_person": "Kiran Shah"
 }'
                 className="min-h-[200px] font-mono text-sm border-input"
               />
